@@ -13,8 +13,16 @@ electron_arches = {
     "arm": "arm"
 }
 
-if len(sys.argv) != 3:
-    print("Usage: flatpak-npm-generator package-lock.json generated-sources.json")
+include_devel = True
+
+args = sys.argv[1:]
+while len(args) and args[0].startswith("-"):
+    if args[0] == '--production':
+        include_devel = False
+    args = args[1:] # shift
+
+if len(args) != 2:
+    print("Usage: flatpak-npm-generator [--production] package-lock.json generated-sources.json")
     sys.exit(1)
 
 lockfile = sys.argv[1]
@@ -26,9 +34,20 @@ root = json.loads(f.read ())
 
 def getModuleSources(module, seen={}):
     sources = []
-    is_dev = "dev" in module and module["dev"]
-    if "resolved" in module:
-        url = module["resolved"]
+
+    version = module["version"]
+    added_url = None
+
+    if module.get("dev", False) and not include_devel:
+        pass
+    if module.get("bundled", False):
+        pass
+    elif module.get("resolved", False) or (version.startswith("http") and not version.endswith(".git")):
+        if module.get("resolved", False):
+            url = module["resolved"]
+        else:
+            url = module["version"]
+        added_url = url
         integrity = module["integrity"]
         if not integrity in seen:
             seen[integrity] = True
@@ -42,37 +61,38 @@ def getModuleSources(module, seen={}):
             source[integrity_type] = hex;
             sources.append(source)
 
-            # Special case electron, adding sources for the electron binaries
-            tarname = url[url.rfind("/")+1:]
-            if tarname.startswith("electron-") and tarname[len("electron-")].isdigit() and tarname.endswith(".tgz"):
-                electron_version = tarname[len("electron-"):-len(".tgz")]
+    if added_url:
+        # Special case electron, adding sources for the electron binaries
+        tarname = added_url[added_url.rfind("/")+1:]
+        if tarname.startswith("electron-") and tarname[len("electron-")].isdigit() and tarname.endswith(".tgz"):
+            electron_version = tarname[len("electron-"):-len(".tgz")]
 
-                shasums_url = "https://github.com/electron/electron/releases/download/v" + electron_version + "/SHASUMS256.txt"
-                f = urllib.request.urlopen(shasums_url)
-                shasums={}
-                shasums_data = f.read().decode("utf8")
-                for line in shasums_data.split('\n'):
-                    l = line.split();
-                    if len(l) == 2:
-                        shasums[l[1][1:]] = l[0]
+            shasums_url = "https://github.com/electron/electron/releases/download/v" + electron_version + "/SHASUMS256.txt"
+            f = urllib.request.urlopen(shasums_url)
+            shasums={}
+            shasums_data = f.read().decode("utf8")
+            for line in shasums_data.split('\n'):
+                l = line.split();
+                if len(l) == 2:
+                    shasums[l[1][1:]] = l[0]
 
-                mini_shasums = ""
-                for arch in electron_arches.keys():
-                    basename = "electron-v" + electron_version + "-linux-" + arch + ".zip"
-                    source = { "type": "file",
-                               "only-arches": [electron_arches[arch]],
-                               "url": "https://github.com/electron/electron/releases/download/v" + electron_version + "/" + basename,
-                               "sha256": shasums[basename],
-                               "dest": "npm-cache"
-                    }
-                    sources.append(source)
-                    mini_shasums = mini_shasums + shasums[basename] + " *" + basename + "\n"
+            mini_shasums = ""
+            for arch in electron_arches.keys():
+                basename = "electron-v" + electron_version + "-linux-" + arch + ".zip"
                 source = { "type": "file",
-                           "url": "data:" + urllib.parse.quote(mini_shasums.encode("utf8")),
-                           "dest": "npm-cache",
-                           "dest-filename": "SHASUMS256.txt-" + electron_version
+                           "only-arches": [electron_arches[arch]],
+                           "url": "https://github.com/electron/electron/releases/download/v" + electron_version + "/" + basename,
+                           "sha256": shasums[basename],
+                           "dest": "npm-cache"
                 }
                 sources.append(source)
+                mini_shasums = mini_shasums + shasums[basename] + " *" + basename + "\n"
+            source = { "type": "file",
+                       "url": "data:" + urllib.parse.quote(mini_shasums.encode("utf8")),
+                       "dest": "npm-cache",
+                       "dest-filename": "SHASUMS256.txt-" + electron_version
+            }
+            sources.append(source)
 
     if "dependencies" in module:
         deps = module["dependencies"]
