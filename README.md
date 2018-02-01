@@ -1,3 +1,7 @@
+# NOTE: Deprecated
+# This repo was an early version of this work, and is now being continued in https://github.com/flatpak/flatpak-builder-tools
+# Please use that version instead.
+
 This is a tool to take npm5 `package-lock.json` lock files and generate flatpak-builder
 sources for this that let you build the npm-using app in flatpak-builder without
 network access.
